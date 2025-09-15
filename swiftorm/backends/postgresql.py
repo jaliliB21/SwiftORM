@@ -1,12 +1,11 @@
-from async_postgres_driver.driver import Driver as PGDriver
+from async_driver.driver import Driver as PGDriver
 from ..core.fields import IntegerField, TextField, BooleanField
 from .base import BaseEngine
 
 
-
-# This can be expanded in the future.
+# A corrected and more robust mapping from our Field classes to PostgreSQL type strings.
 FIELD_TYPE_MAP = {
-    IntegerField: 'SERIAL' or 'INTEGER', # Use SERIAL for auto-incrementing integers
+    IntegerField: 'INTEGER',
     TextField: 'TEXT',
     BooleanField: 'BOOLEAN',
 }
@@ -42,16 +41,19 @@ class PostgresEngine(BaseEngine):
         
         sql_columns = []
         for name, field in model_class._fields.items():
-            column_type = FIELD_TYPE_MAP.get(type(field), 'TEXT') # Default to TEXT
+            # Look up the base SQL type from our corrected map.
+            column_type = FIELD_TYPE_MAP.get(type(field), 'TEXT')
             
-            # For simplicity, we assume the primary key is always 'id'.
-            if field.primary_key and name == 'id' and column_type == 'INTEGER':
-                 column_type = 'SERIAL PRIMARY KEY'
-            else:
-                 column_type = f"{column_type}"
-
+            # Add PRIMARY KEY constraint if specified.
+            # Use SERIAL for integer primary keys for auto-incrementing behavior.
+            if field.primary_key:
+                if isinstance(field, IntegerField):
+                    column_type = 'SERIAL PRIMARY KEY'
+                else:
+                    column_type += ' PRIMARY KEY'
+            
             sql_columns.append(f'"{name}" {column_type}')
-        
+                
         columns_sql = ", ".join(sql_columns)
         
         # The final CREATE TABLE query
