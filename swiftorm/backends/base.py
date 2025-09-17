@@ -24,5 +24,19 @@ class BaseEngine(ABC):
         """Creates a database table based on a model class."""
         raise NotImplementedError
     
-    # We will add more abstract methods here later for insert, select, etc.
+     # --- ABSTRACT METHODS FOR CRUD ---
+    @abstractmethod
+    async def insert(self, model_instance):
+        """Inserts a new record into the database."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def update(self, model_instance):
+        """Updates an existing record in the database."""
+        raise NotImplementedError
+        
+    @abstractmethod
+    async def delete(self, model_instance):
+        """Deletes a record from the database."""
+        raise NotImplementedError
 

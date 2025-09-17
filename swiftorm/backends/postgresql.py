@@ -1,6 +1,8 @@
 from async_driver.driver import Driver as PGDriver
 from ..core.fields import IntegerField, TextField, BooleanField
 from .base import BaseEngine
+from ..core.models import Model
+from .base import BaseEngine
 
 
 # A corrected and more robust mapping from our Field classes to PostgreSQL type strings.
@@ -64,3 +66,64 @@ class PostgresEngine(BaseEngine):
         # Execute the query using our driver's secure parameter execution method
         await self.driver.execute(create_sql, [])
         print(f"Table '{table_name}' created or already exists.")
+
+    # --- NEWLY IMPLEMENTED METHODS ---
+    async def insert(self, model_instance):
+        """
+        Builds and executes an INSERT statement.
+        """
+        table_name = model_instance.__tablename__
+        fields = model_instance._fields
+        
+        # Get columns and values from the instance
+        columns = [f'"{name}"' for name in fields.keys() if getattr(model_instance, name, None) is not None]
+        values = [getattr(model_instance, name) for name in fields.keys() if getattr(model_instance, name, None) is not None]
+        
+        # Build placeholders like $1, $2, $3
+        placeholders = ', '.join([f'${i+1}' for i in range(len(values))])
+        
+        # Find the primary key field name
+        pk_field_name = 'id' # Assume 'id' for now for simplicity
+        
+        sql = f'INSERT INTO "{table_name}" ({", ".join(columns)}) VALUES ({placeholders}) RETURNING "{pk_field_name}";'
+        
+        result = await self.driver.execute(sql, values)
+        # Set the primary key on the instance after creation
+        setattr(model_instance, pk_field_name, result[0][pk_field_name])
+
+    async def update(self, model_instance):
+        """
+        Builds and executes an UPDATE statement.
+        """
+        table_name = model_instance.__tablename__
+        fields = model_instance._fields
+        pk_field_name = 'id' # Assume 'id' for now
+        pk_value = getattr(model_instance, pk_field_name)
+
+        update_fields = []
+        values = []
+        i = 1
+        for name in fields.keys():
+            if name != pk_field_name:
+                update_fields.append(f'"{name}" = ${i}')
+                values.append(getattr(model_instance, name))
+                i += 1
+        
+        # Add the primary key value for the WHERE clause
+        values.append(pk_value)
+        
+        sql = f'UPDATE "{table_name}" SET {", ".join(update_fields)} WHERE "{pk_field_name}" = ${i};'
+        
+        await self.driver.execute(sql, values)
+
+    async def delete(self, model_instance):
+        """
+        Builds and executes a DELETE statement.
+        """
+        table_name = model_instance.__tablename__
+        pk_field_name = 'id' # Assume 'id' for now
+        pk_value = getattr(model_instance, pk_field_name)
+        
+        sql = f'DELETE FROM "{table_name}" WHERE "{pk_field_name}" = $1;'
+        
+        await self.driver.execute(sql, [pk_value])

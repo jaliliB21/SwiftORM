@@ -1,5 +1,5 @@
 import importlib
-from .core.models import _model_registry
+from .core.models import _model_registry, Model
 
 
 _engine = None
@@ -26,16 +26,29 @@ def setup(settings_module_path: str):
     engine_module = importlib.import_module(module_path)
     engine_class = getattr(engine_module, class_name)
     _engine = engine_class(db_config)
-    print(f"Engine '{class_name}' loaded successfully.")
+
+    Model._engine = _engine
+    print(f"Engine '{class_name}' loaded and connected to models.")
+
+
+async def connect():
+    """Establishes the global database connection."""
+    if not _engine:
+        raise Exception("Engine is not set up. Call swiftorm.setup() first.")
+    await _engine.connect()
+
+
+async def disconnect():
+    """Closes the global database connection."""
+    if _engine:
+        await _engine.disconnect()
 
 
 async def create_all_tables():
     # ... (this function remains the same)
     if not _engine:
         raise Exception("Engine is not set up. Call swiftorm.setup() first.")
-    await _engine.connect()
-    try:
-        for model_class in _model_registry:
-            await _engine.create_table(model_class)
-    finally:
-        await _engine.disconnect()
+
+    
+    for model_class in _model_registry:
+        await _engine.create_table(model_class)

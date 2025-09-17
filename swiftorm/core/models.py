@@ -59,8 +59,20 @@ class Model(ABC, metaclass=CombinedMeta):
     # in the `_model_registry`.
     __abstract__ = True
 
+    _engine = None
+
     def __init__(self, **kwargs):
-        # The __init__ method remains the same.
+        """
+        Initializes a model instance.
+        - Sets all defined fields with their default value or None.
+        - Overwrites them with any values passed in kwargs.
+        """
+
+        # Step 1: Initialize all fields from the class's `_fields` map.
+        for name, field in self._fields.items():
+            setattr(self, name, field.default)
+
+        # Step 2: Overwrite with any values the user provided.
         for key, value in kwargs.items():
             if key in self._fields:
                 setattr(self, key, value)
@@ -72,27 +84,30 @@ class Model(ABC, metaclass=CombinedMeta):
         attrs_str = ', '.join(f'{key}={getattr(self, key, None)}' for key in self._fields)
         return f"<{type(self).__name__}: {attrs_str}>"
 
-    @abstractmethod
     async def save(self):
         """
-        Saves the current instance to the database (creates if new, updates if exists).
-        This method must be implemented by a subclass that is connected to a database engine.
+        Saves the current instance to the database.
+        Delegates to the engine's insert or update method.
         """
-        raise NotImplementedError
+        if self.id is None:
+            # This is a new record, so insert it.
+            await self._engine.insert(self)
+        else:
+            # This is an existing record, so update it.
+            await self._engine.update(self)
 
-    @abstractmethod
     async def delete(self):
         """
         Deletes the current instance from the database.
-        This method must be implemented by a subclass.
+        Delegates to the engine's delete method.
         """
-        raise NotImplementedError
+        await self._engine.delete(self)
 
     @classmethod
-    @abstractmethod
     async def create(cls, **kwargs):
         """
-        Creates a new instance, saves it to the database, and returns the instance.
-        This method must be implemented by a subclass.
+        Creates a new instance, saves it to the database, and returns it.
         """
-        raise NotImplementedError
+        instance = cls(**kwargs)
+        await instance.save()
+        return instance
