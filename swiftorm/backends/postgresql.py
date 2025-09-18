@@ -1,9 +1,11 @@
 from async_driver.driver import Driver as PGDriver
+from async_driver.exceptions import QueryError
+
 from ..core.fields import IntegerField, TextField, BooleanField
 from .base import BaseEngine
 from ..core.models import Model
 from .base import BaseEngine
-
+from ..core import exceptions
 
 # A corrected and more robust mapping from our Field classes to PostgreSQL type strings.
 FIELD_TYPE_MAP = {
@@ -35,38 +37,51 @@ class PostgresEngine(BaseEngine):
         await self.driver.close()
         print("Disconnection successful.")
 
-    async def create_table(self, model_class):
+    async def create_table(self, model_class: Model):
         """
-        Builds and executes a 'CREATE TABLE' SQL statement for a given model.
+        Builds and executes a 'CREATE TABLE' SQL statement for a given model,
+        including constraints like NOT NULL and UNIQUE.
         """
         table_name = model_class.__tablename__
-        
+
         sql_columns = []
         for name, field in model_class._fields.items():
-            # Look up the base SQL type from our corrected map.
-            column_type = FIELD_TYPE_MAP.get(type(field), 'TEXT')
+            # Start with the base column type
+            column_type_str = FIELD_TYPE_MAP.get(type(field), 'TEXT')
             
-            # Add PRIMARY KEY constraint if specified.
-            # Use SERIAL for integer primary keys for auto-incrementing behavior.
+            # Special handling for TextField with max_length
+            if isinstance(field, TextField) and field.max_length is not None:
+                column_type_str = f"VARCHAR({field.max_length})"
+
+            constraints = []
+            
+            # Handle PRIMARY KEY (and SERIAL for integers)
             if field.primary_key:
                 if isinstance(field, IntegerField):
-                    column_type = 'SERIAL PRIMARY KEY'
-                else:
-                    column_type += ' PRIMARY KEY'
+                    column_type_str = 'SERIAL'
+                constraints.append('PRIMARY KEY')
             
-            sql_columns.append(f'"{name}" {column_type}')
+            # Handle REQUIRED (NOT NULL)
+            if field.required:
+                constraints.append('NOT NULL')
+            
+            # Handle UNIQUE
+            if field.unique:
+                constraints.append('UNIQUE')
                 
+            # Assemble the final column definition string
+            full_column_def = f'"{name}" {column_type_str} {" ".join(constraints)}'
+            sql_columns.append(full_column_def.strip())
+
         columns_sql = ", ".join(sql_columns)
-        
-        # The final CREATE TABLE query
+
         create_sql = f'CREATE TABLE IF NOT EXISTS "{table_name}" ({columns_sql});'
-        
+
         print(f"Executing: {create_sql}")
-        
-        # Execute the query using our driver's secure parameter execution method
+
         await self.driver.execute(create_sql, [])
         print(f"Table '{table_name}' created or already exists.")
-
+    
     # --- NEWLY IMPLEMENTED METHODS ---
     async def insert(self, model_instance):
         """
@@ -87,9 +102,16 @@ class PostgresEngine(BaseEngine):
         
         sql = f'INSERT INTO "{table_name}" ({", ".join(columns)}) VALUES ({placeholders}) RETURNING "{pk_field_name}";'
         
-        result = await self.driver.execute(sql, values)
-        # Set the primary key on the instance after creation
-        setattr(model_instance, pk_field_name, result[0][pk_field_name])
+        try:
+            result = await self.driver.execute(sql, values)
+            setattr(model_instance, pk_field_name, result[0][pk_field_name])
+        except QueryError as e:
+            # Check if the database error is about a unique constraint violation
+            if 'unique constraint' in str(e).lower():
+                raise exceptions.IntegrityError(f"A record with this value already exists. Details: {e}")
+            else:
+                # Re-raise other query errors
+                raise e
 
     async def update(self, model_instance):
         """
@@ -114,7 +136,15 @@ class PostgresEngine(BaseEngine):
         
         sql = f'UPDATE "{table_name}" SET {", ".join(update_fields)} WHERE "{pk_field_name}" = ${i};'
         
-        await self.driver.execute(sql, values)
+        try:
+            await self.driver.execute(sql, values)
+        except QueryError as e:
+            # Check if the database error is about a unique constraint violation
+            if 'unique constraint' in str(e).lower():
+                raise exceptions.IntegrityError(f"A record with this value already exists. Details: {e}")
+            else:
+                # Re-raise other query errors
+                raise e
 
     async def delete(self, model_instance):
         """

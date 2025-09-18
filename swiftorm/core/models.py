@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod, ABCMeta
-from .fields import Field
-
+from .fields import Field, TextField
+from . import exceptions
 
 # A central registry to store all defined model classes.
 _model_registry = []
@@ -84,11 +84,26 @@ class Model(ABC, metaclass=CombinedMeta):
         attrs_str = ', '.join(f'{key}={getattr(self, key, None)}' for key in self._fields)
         return f"<{type(self).__name__}: {attrs_str}>"
 
+    def validate(self):
+        """
+        Runs validation checks for all fields before saving.
+        """
+        for name, field in self._fields.items():
+            value = getattr(self, name, None)
+            if field.required and value is None:
+                raise exceptions.ValidationError(f"Field '{name}' is required and cannot be null.")
+            
+            if isinstance(field, TextField) and field.max_length is not None:
+                if value is not None and len(value) > field.max_length:
+                    raise exceptions.ValidationError(f"Field '{name}' exceeds max length of {field.max_length}.")
+
+
     async def save(self):
         """
         Saves the current instance to the database.
         Delegates to the engine's insert or update method.
         """
+        self.validate() # <-- Run validation before saving
         if self.id is None:
             # This is a new record, so insert it.
             await self._engine.insert(self)

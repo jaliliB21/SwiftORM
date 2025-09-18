@@ -1,8 +1,12 @@
 class Field:
     """The base class for all field types."""
-    def __init__(self, primary_key=False, default=None):
+
+    # We add `required` and `unique` to the base class __init__
+    def __init__(self, primary_key=False, default=None, required=False, unique=False):
         self.primary_key = primary_key
         self.default = default
+        self.required = required # Will translate to a NOT NULL constraint
+        self.unique = unique     # Will translate to a UNIQUE constraint
 
 
 class IntegerField(Field):
@@ -12,7 +16,12 @@ class IntegerField(Field):
 
 class TextField(Field):
     """Represents a text field in the database."""
-    pass
+    
+    # We add `max_length` specifically to the TextField
+    def __init__(self, max_length=None, **kwargs):
+        self.max_length = max_length # Will translate to VARCHAR(n)
+        # Pass other keywords (primary_key, default, etc.) to the parent class
+        super().__init__(**kwargs)
 
 
 class BooleanField(Field):
