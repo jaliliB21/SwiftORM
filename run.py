@@ -12,8 +12,7 @@ async def main():
 
     try:
         print("\n--- Testing Create ---")
-        user = User(username='behzad', email='behzad@example.com')
-        await user.save()
+        user = await User.objects.create(username='behzad', email='behzad@example.com')
         
         print(f"Created user: {user}")
         

@@ -29,3 +29,14 @@ class QuerySet:
         instance = self.model_class(**rows[0])
         instance.id = rows[0].get('id') # Ensure PK is set
         return instance
+
+    async def create(self, **kwargs):
+        """
+        Creates a new instance, saves it, and returns it.
+        This is the main factory method.
+        """
+        # Create an instance in memory
+        instance = self.model_class(**kwargs)
+        # Use the instance's own save method to persist it
+        await instance.save()
+        return instance

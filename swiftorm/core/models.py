@@ -123,12 +123,3 @@ class Model(ABC, metaclass=CombinedMeta):
         Delegates to the engine's delete method.
         """
         await self._engine.delete(self)
-
-    @classmethod
-    async def create(cls, **kwargs):
-        """
-        Creates a new instance, saves it to the database, and returns it.
-        """
-        instance = cls(**kwargs)
-        await instance.save()
-        return instance
