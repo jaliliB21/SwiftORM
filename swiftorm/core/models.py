@@ -93,10 +93,9 @@ class Model(ABC, metaclass=CombinedMeta):
             if field.required and value is None:
                 raise exceptions.ValidationError(f"Field '{name}' is required and cannot be null.")
             
-            if isinstance(field, TextField) and field.max_length is not None:
-                if value is not None and len(value) > field.max_length:
-                    raise exceptions.ValidationError(f"Field '{name}' exceeds max length of {field.max_length}.")
-
+            # Then, if a value exists, run the field's own type-specific validation.
+            if value is not None:
+                field.validate(value)
 
     async def save(self):
         """
