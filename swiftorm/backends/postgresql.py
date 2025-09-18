@@ -157,3 +157,30 @@ class PostgresEngine(BaseEngine):
         sql = f'DELETE FROM "{table_name}" WHERE "{pk_field_name}" = $1;'
         
         await self.driver.execute(sql, [pk_value])
+
+    async def select(self, model_class, **kwargs):
+        """
+        Builds and executes a SELECT ... WHERE ... statement.
+        """
+        table_name = model_class.__tablename__
+        
+        # Build the WHERE clause from keyword arguments
+        where_clauses = []
+        values = []
+        i = 1
+        for key, value in kwargs.items():
+            where_clauses.append(f'"{key}" = ${i}')
+            values.append(value)
+            i += 1
+        
+        # If there are no kwargs, we select all rows. This is for `.all()` later.
+        where_sql = " AND ".join(where_clauses)
+        
+        sql = f'SELECT * FROM "{table_name}"'
+        if where_sql:
+            sql += f" WHERE {where_sql};"
+        else:
+            sql += ";"
+
+        # Use the driver to execute the query and return the results
+        return await self.driver.execute(sql, values)

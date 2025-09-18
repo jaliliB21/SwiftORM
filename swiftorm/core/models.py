@@ -2,6 +2,9 @@ from abc import ABC, abstractmethod, ABCMeta
 from .fields import Field, TextField
 from . import exceptions
 
+
+from .query import QuerySet # <-- Import QuerySet
+
 # A central registry to store all defined model classes.
 _model_registry = []
 
@@ -23,6 +26,10 @@ class ModelMetaclass(type):
         # `new_class` object created at the beginning.
         if name == "Model":
             return new_class
+
+        # --- LOGIC TO ADD `objects` MANAGER ---
+        setattr(new_class, 'objects', QuerySet(model_class=new_class))
+        # --- END
 
         table_name = attrs.get('__tablename__', name.lower())
         new_class.__tablename__ = table_name

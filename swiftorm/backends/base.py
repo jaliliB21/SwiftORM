@@ -40,3 +40,7 @@ class BaseEngine(ABC):
         """Deletes a record from the database."""
         raise NotImplementedError
 
+    @abstractmethod
+    async def select(self, model_class, **kwargs):
+        """Selects records from the database."""
+        raise NotImplementedError
