@@ -158,29 +158,49 @@ class PostgresEngine(BaseEngine):
         
         await self.driver.execute(sql, [pk_value])
 
-    async def select(self, model_class, **kwargs):
+    async def select(self, model_class, filters={}, ordering=[], limit=None):
         """
         Builds and executes a SELECT ... WHERE ... statement.
         """
         table_name = model_class.__tablename__
         
-        # Build the WHERE clause from keyword arguments
+        # The loop now correctly iterates over the `filters` dictionary
+        # instead of the non-existent `kwargs`.
         where_clauses = []
         values = []
         i = 1
-        for key, value in kwargs.items():
+        for key, value in filters.items():
             where_clauses.append(f'"{key}" = ${i}')
             values.append(value)
             i += 1
         
-        # If there are no kwargs, we select all rows. This is for `.all()` later.
+        # Join all filter conditions together with 'AND'.
         where_sql = " AND ".join(where_clauses)
         
         sql = f'SELECT * FROM "{table_name}"'
+
         if where_sql:
-            sql += f" WHERE {where_sql};"
-        else:
-            sql += ";"
+            sql += f" WHERE {where_sql}"
+        
+        # --- LOGIC FOR ORDER BY ---
+        if ordering:
+            order_clauses = []
+            for field_name in ordering:
+                if field_name.startswith('-'):
+                    # Handle descending order
+                    order_clauses.append(f'"{field_name[1:]}" DESC')
+                else:
+                    # Handle ascending order
+                    order_clauses.append(f'"{field_name}" ASC')
+            sql += f" ORDER BY {', '.join(order_clauses)}"
+        # --- END ---
+
+        # --- LOGIC FOR LIMIT ---
+        if limit is not None:
+            sql += f" LIMIT {limit}"
+        # --- END ---
+
+        sql += ";"
 
         # Use the driver to execute the query and return the results
         return await self.driver.execute(sql, values)

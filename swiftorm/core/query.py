@@ -10,6 +10,8 @@ class QuerySet:
         self.model_class = model_class
         # This will now store our WHERE conditions
         self._filters = {}
+        # This new list will store our ORDER BY conditions
+        self._ordering = []
 
     def filter(self, **kwargs):
         """
@@ -21,6 +23,15 @@ class QuerySet:
         new_queryset._filters.update(kwargs)
         return new_queryset
 
+    def order_by(self, *args):
+        """
+        Adds an ordering condition to the query. This is chainable.
+        e.g., .order_by('username', '-id')
+        """
+        new_queryset = copy.deepcopy(self)
+        new_queryset._ordering.extend(args)
+        return new_queryset
+
     async def all(self):
         """
         Executes the query and returns all matching records as a list.
@@ -30,10 +41,38 @@ class QuerySet:
             raise exceptions.ORMError("Engine is not configured.")
         
         # Pass the stored filters to the engine's select method
-        rows = await engine.select(self.model_class, **self._filters)
+        rows = await engine.select(
+            self.model_class,
+            filters=self._filters,
+            ordering=self._ordering  # <-- Pass ordering to the engine
+        )
         
         # Convert raw data rows into model instances
         return [self.model_class(**row) for row in rows]
+
+    async def first(self):
+        """
+        Executes the query and returns the first matching record, or None.
+        """
+        engine = self.model_class._engine
+        if not engine:
+            raise exceptions.ORMError("Engine is not configured.")
+
+        # Limit the query to 1 result for efficiency
+        rows = await engine.select(
+            self.model_class,
+            filters=self._filters,
+            ordering=self._ordering,
+            limit=1
+        )
+        
+        if not rows:
+            return None
+        
+        # We need to correctly initialize the instance from the row data
+        instance = self.model_class(**rows[0])
+        instance.id = rows[0].get('id') # Ensure PK is set
+        return instance
 
 
     async def get(self, **kwargs):
