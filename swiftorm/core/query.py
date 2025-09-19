@@ -1,4 +1,5 @@
 from . import exceptions
+import copy
 
 
 class QuerySet:
@@ -7,6 +8,33 @@ class QuerySet:
     """
     def __init__(self, model_class):
         self.model_class = model_class
+        # This will now store our WHERE conditions
+        self._filters = {}
+
+    def filter(self, **kwargs):
+        """
+        Adds a filter condition to the query. This is chainable.
+        """
+        # We create a clone of the current QuerySet to ensure
+        # that chaining does not modify the original QuerySet.
+        new_queryset = copy.deepcopy(self)
+        new_queryset._filters.update(kwargs)
+        return new_queryset
+
+    async def all(self):
+        """
+        Executes the query and returns all matching records as a list.
+        """
+        engine = self.model_class._engine
+        if not engine:
+            raise exceptions.ORMError("Engine is not configured.")
+        
+        # Pass the stored filters to the engine's select method
+        rows = await engine.select(self.model_class, **self._filters)
+        
+        # Convert raw data rows into model instances
+        return [self.model_class(**row) for row in rows]
+
 
     async def get(self, **kwargs):
         """
@@ -16,7 +44,7 @@ class QuerySet:
         # ensuring we get the configured engine after setup() has run.
         engine = self.model_class._engine
         if not engine:
-            raise exceptions.ORMError("Engine is not configured. Did you run swiftorm.setup()?")
+            raise exceptions.ORMError("Engine is not configured.")
 
         rows = await engine.select(self.model_class, **kwargs)
 
