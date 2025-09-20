@@ -1,0 +1,18 @@
+# --- SwiftORM Database Configuration ---
+DATABASES = {
+    'default': {
+        'ENGINE': 'swiftorm.backends.postgresql.PostgresEngine',
+        'user': '',
+        'password': '',
+        'database': '',
+        'host': '',
+        'port': ,
+    }
+}
+
+
+# --- Application Definition ---
+# Add the names of your apps to this list.
+INSTALLED_APPS = [
+    # e.g., 'products',
+]

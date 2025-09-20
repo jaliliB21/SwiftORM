@@ -1,0 +1,24 @@
+import click
+import os
+import sys
+
+
+# This makes sure we can import from the project root
+sys.path.append(os.getcwd())
+
+@click.group()
+def manage():
+    """Management script for this SwiftORM project."""
+    pass
+
+
+# We will add commands like `startapp` and `createtables` here later.
+@manage.command()
+def example():
+  
+    """An example command."""
+    click.echo("This is an example command from manage.py!")
+
+
+if __name__ == '__main__':
+    manage()

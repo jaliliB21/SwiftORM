@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "swiftorm"
+version = "0.1.0"
+dependencies = [
+    "click>=8.0",
+    # --- ADD THIS LINE ---
+    # This tells pip to also install our driver in editable mode from a local path.
+    # Make sure to use the correct path to YOUR driver project.
+    "async-postgres-driver @ file:///home/behzad/Desktop/project/python/async_postgres_driver"
+]
+
+[project.scripts]
+swiftorm-admin = "swiftorm.cli.main:cli"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["swiftorm*"]
