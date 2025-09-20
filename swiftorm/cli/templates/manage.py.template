@@ -1,10 +1,12 @@
 import click
 import os
 import sys
+import asyncio
 
 
 # This makes sure we can import from the project root
 sys.path.append(os.getcwd())
+
 
 @click.group()
 def manage():
@@ -12,13 +14,59 @@ def manage():
     pass
 
 
-# We will add commands like `startapp` and `createtables` here later.
 @manage.command()
-def example():
-  
-    """An example command."""
-    click.echo("This is an example command from manage.py!")
+@click.argument('app_name')
+def startapp(app_name):
+    """Creates a new app directory with a models.py file."""
+    try:
+        app_path = Path(os.getcwd()) / app_name
+        
+        if app_path.exists():
+            click.echo(f"Error: Directory '{app_name}' already exists.")
+            return
+            
+        # Create the app directory and the necessary files
+        app_path.mkdir()
+        (app_path / '__init__.py').touch()
+        
+        # Create a models.py file with a helpful comment
+        with open(app_path / 'models.py', 'w') as f:
+            f.write("# Define your models for the '{}' app here.\n".format(app_name))
+            f.write("from swiftorm.core.models import Model\n")
+            f.write("from swiftorm.core.fields import IntegerField, TextField\n")
+
+        click.echo(f"App '{app_name}' created successfully.")
+        click.echo(f"Don't forget to add '{app_name}' to INSTALLED_APPS in your settings.py!")
+
+    except Exception as e:
+        click.echo(f"An error occurred: {e}")
+
+
+@manage.command()
+def createtables():
+    """
+    Discovers all models in INSTALLED_APPS and creates their tables
+    in the database.
+    """
+    click.echo("Creating database tables...")
+    
+    # We need to import the framework and run the setup logic
+    import swiftorm
+    
+    async def run_creation():
+        try:
+            # The setup function reads settings.py and discovers models
+            swiftorm.setup('settings')
+            # The create_all_tables function connects, creates, and disconnects
+            await swiftorm.create_all_tables()
+            click.echo("All tables created successfully.")
+        except Exception as e:
+            click.echo(f"An error occurred: {e}")
+
+    asyncio.run(run_creation())
 
 
 if __name__ == '__main__':
+    # We need to import Path here as well for the startapp command
+    from pathlib import Path
     manage()
