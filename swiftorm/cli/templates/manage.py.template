@@ -45,23 +45,25 @@ def startapp(app_name):
 @manage.command()
 def createtables():
     """
-    Discovers all models in INSTALLED_APPS and creates their tables
-    in the database.
+    Discovers all models and creates their tables in the database.
     """
     click.echo("Creating database tables...")
-    
-    # We need to import the framework and run the setup logic
     import swiftorm
     
     async def run_creation():
+        swiftorm.setup('settings')
         try:
-            # The setup function reads settings.py and discovers models
-            swiftorm.setup('settings')
-            # The create_all_tables function connects, creates, and disconnects
+            # --- THE FIX IS HERE ---
+            # 1. We must connect before doing anything.
+            await swiftorm.connect()
+            # 2. Now we can create the tables.
             await swiftorm.create_all_tables()
             click.echo("All tables created successfully.")
         except Exception as e:
             click.echo(f"An error occurred: {e}")
+        finally:
+            # 3. We must disconnect at the end.
+            await swiftorm.disconnect()
 
     asyncio.run(run_creation())
 

@@ -85,7 +85,7 @@ class QuerySet:
         if not engine:
             raise exceptions.ORMError("Engine is not configured.")
 
-        rows = await engine.select(self.model_class, **kwargs)
+        rows = await engine.select(self.model_class, filters=kwargs)
 
         if len(rows) == 0:
             raise exceptions.ObjectNotFound(f"{self.model_class.__name__} matching query does not exist.")
