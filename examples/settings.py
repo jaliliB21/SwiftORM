@@ -12,5 +12,5 @@ DATABASES = {
 
 
 INSTALLED_APPS = [
-    'user_app',
+    'examples.blog',
 ]

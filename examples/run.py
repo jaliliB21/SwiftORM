@@ -1,46 +1,50 @@
 import asyncio
 import swiftorm
-from user_app.models import User
-from swiftorm.core import exceptions
+# We import the models from our example app
+from .blog.models import Author, Post
+
 
 async def main():
-    swiftorm.setup('settings')
+    print("--- Setting up SwiftORM ---")
+    # Note the path to the settings file
+    swiftorm.setup('examples.settings')
+    
     await swiftorm.connect()
-    await swiftorm._engine.driver.execute("DROP TABLE IF EXISTS users;", [])
+    
+    # Clean up previous tables for a fresh start
+    print("\n--- Dropping old tables (if they exist) ---")
+    await swiftorm._engine.driver.execute("DROP TABLE IF EXISTS posts;", [])
+    await swiftorm._engine.driver.execute("DROP TABLE IF EXISTS authors;", [])
+    
+    # Create tables based on discovered models
+    print("\n--- Creating new tables ---")
     await swiftorm.create_all_tables()
-
+    
+    print("\n--- Running example scenario ---")
     try:
-        # --- 1. Create initial data ---
-        print("\n--- 1. Creating initial data ---")
-        await User.objects.create(username='behzad', email='behzad@example.com', is_active=True)
-        await User.objects.create(username='ali', email='ali@example.com', is_active=True)
-        await User.objects.create(username='reza', email='reza@example.com', is_active=False)
-        print("Initial data created successfully.")
-
-        # --- 2. Test .order_by() and .first() ---
-        print("\n--- 2. Testing .order_by() and .first() ---")
-        # Get the first active user, ordered by username descending
-        first_active_user = await User.objects.filter(is_active=True).order_by('-username').first()
+        # 1. Create an Author
+        author = await Author.objects.create(name='Behzad')
+        print(f"Created Author: {author}")
         
-        print(f"SUCCESS: The first active user (ordered by name DESC) is: {first_active_user}")
-        # 'behzad' comes after 'ali' alphabetically, so it should be first in DESC order.
-        assert first_active_user.username == 'behzad'
+        # 2. Create a Post and link it to the author using the ID
+        post = await Post.objects.create(title='My First Post with SwiftORM', author_id=author.id)
+        print(f"Created Post: {post}")
         
-        # --- 3. Test .all() with ordering ---
-        print("\n--- 3. Testing .all() with ordering ---")
-        all_active_users = await User.objects.filter(is_active=True).order_by('username').all()
-        print("SUCCESS: Active users ordered by name ASC:")
-        for user in all_active_users:
-            print(f"  - {user}")
-        assert all_active_users[0].username == 'ali'
-        assert all_active_users[1].username == 'behzad'
+        # 3. Fetch the post and verify the relationship
+        fetched_post = await Post.objects.get(id=post.id)
+        print(f"Fetched post has author_id: {fetched_post.author_id}")
+        assert fetched_post.author_id == author.id
 
-    except exceptions.ORMError as e:
-        print(f"An ORM error occurred: {e}")
+        fetched_author_post = await Post.objects.filter(author_id=author.id).all()
+        print(fetched_author_post)
+
+    except Exception as e:
+        print(f"An error occurred: {e}")
     finally:
-        await swiftorm._engine.driver.execute("DROP TABLE IF EXISTS users;", [])
+        print("\n--- Disconnecting ---")
         await swiftorm.disconnect()
 
-
 if __name__ == "__main__":
+    # To run this script, you must be in the project's ROOT directory
+    # and use the command: python -m examples.run
     asyncio.run(main())
