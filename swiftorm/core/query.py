@@ -74,7 +74,6 @@ class QuerySet:
         instance.id = rows[0].get('id') # Ensure PK is set
         return instance
 
-
     async def get(self, **kwargs):
         """
         Fetches exactly one record from the database.

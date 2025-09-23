@@ -1,7 +1,7 @@
 from async_driver.driver import Driver as PGDriver
 from async_driver.exceptions import QueryError
 
-from ..core.fields import IntegerField, TextField, BooleanField
+from ..core.fields import IntegerField, TextField, BooleanField, ForeignKey
 from .base import BaseEngine
 from ..core.models import Model
 from .base import BaseEngine
@@ -40,60 +40,112 @@ class PostgresEngine(BaseEngine):
     async def create_table(self, model_class: Model):
         """
         Builds and executes a 'CREATE TABLE' SQL statement for a given model,
-        including constraints like NOT NULL and UNIQUE.
+        now with support for ForeignKey constraints.
         """
         table_name = model_class.__tablename__
-
+        
         sql_columns = []
-        for name, field in model_class._fields.items():
-            # Start with the base column type
-            column_type_str = FIELD_TYPE_MAP.get(type(field), 'TEXT')
-            
-            # Special handling for TextField with max_length
-            if isinstance(field, TextField) and field.max_length is not None:
-                column_type_str = f"VARCHAR({field.max_length})"
+        # We will collect table-level constraints like foreign keys separately.
+        table_constraints = []
+        all_fields = {**model_class._fields, **model_class._foreign_keys}
 
-            constraints = []
+        for name, field in all_fields.items():
             
-            # Handle PRIMARY KEY (and SERIAL for integers)
-            if field.primary_key:
-                if isinstance(field, IntegerField):
-                    column_type_str = 'SERIAL'
-                constraints.append('PRIMARY KEY')
-            
-            # Handle REQUIRED (NOT NULL)
-            if field.required:
-                constraints.append('NOT NULL')
-            
-            # Handle UNIQUE
-            if field.unique:
-                constraints.append('UNIQUE')
+            # LOGIC FOR ForeignKey
+            if isinstance(field, ForeignKey):
+                # The actual column name will be `field_name_id`
+                col_name = f'"{name}_id"'
+                # Foreign key columns are typically integers
+                column_type_str = 'INTEGER'
                 
-            # Assemble the final column definition string
-            full_column_def = f'"{name}" {column_type_str} {" ".join(constraints)}'
-            sql_columns.append(full_column_def.strip())
+                related_table = field.related_model.__tablename__
+                # For simplicity, assume the related field is always 'id'
+                related_field = 'id'
+                
+                # Build the FOREIGN KEY constraint string
+                fk_constraint = (
+                    f'CONSTRAINT fk_{table_name}_{name}_to_{related_table} '
+                    f'FOREIGN KEY ({col_name}) REFERENCES "{related_table}" ("{related_field}") '
+                    f'ON DELETE {field.on_delete.upper()}'
+                )
+                table_constraints.append(fk_constraint)
+                
+                # Create the column definition for the foreign key
+                # It can also have other constraints like NOT NULL
+                constraints = []
+                if field.required:
+                    constraints.append('NOT NULL')
+                
+                full_column_def = f'{col_name} {column_type_str} {" ".join(constraints)}'
+                sql_columns.append(full_column_def.strip())
 
+            # LOGIC FOR REGULAR FIELDS
+            else:
+                # Start with the base column type
+                column_type_str = FIELD_TYPE_MAP.get(type(field), 'TEXT')
+                
+                # Special handling for TextField with max_length
+                if isinstance(field, TextField) and field.max_length is not None:
+                    column_type_str = f"VARCHAR({field.max_length})"
+
+                constraints = []
+                
+                # Handle PRIMARY KEY (and SERIAL for integers)
+                if field.primary_key:
+                    if isinstance(field, IntegerField):
+                        column_type_str = 'SERIAL'
+                    constraints.append('PRIMARY KEY')
+                
+                # Handle REQUIRED (NOT NULL)
+                if field.required:
+                    constraints.append('NOT NULL')
+                
+                # Handle UNIQUE
+                if field.unique:
+                    constraints.append('UNIQUE')
+                    
+                # Assemble the final column definition string
+                full_column_def = f'"{name}" {column_type_str} {" ".join(constraints)}'
+                sql_columns.append(full_column_def.strip())
+        
+        # Add the table-level constraints at the end
+        if table_constraints:
+            sql_columns.extend(table_constraints)
+            
         columns_sql = ", ".join(sql_columns)
-
+        
         create_sql = f'CREATE TABLE IF NOT EXISTS "{table_name}" ({columns_sql});'
-
+        
         print(f"Executing: {create_sql}")
-
+        
         await self.driver.execute(create_sql, [])
         print(f"Table '{table_name}' created or already exists.")
     
-    # --- NEWLY IMPLEMENTED METHODS ---
     async def insert(self, model_instance):
         """
         Builds and executes an INSERT statement.
         """
         table_name = model_instance.__tablename__
-        fields = model_instance._fields
         
-        # Get columns and values from the instance
-        columns = [f'"{name}"' for name in fields.keys() if getattr(model_instance, name, None) is not None]
-        values = [getattr(model_instance, name) for name in fields.keys() if getattr(model_instance, name, None) is not None]
+        columns = []
+        values = []
         
+        # Iterate over regular fields (excluding primary key)
+        for name, field in model_instance._fields.items():
+            if not field.primary_key:
+                value = getattr(model_instance, name, None)
+                if value is not None:
+                    columns.append(f'"{name}"')
+                    values.append(value)
+        
+        # Iterate over foreign key fields
+        for name, field in model_instance._foreign_keys.items():
+            fk_id_name = f"{name}_id"
+            value = getattr(model_instance, fk_id_name, None)
+            if value is not None:
+                columns.append(f'"{fk_id_name}"')
+                values.append(value)
+       
         # Build placeholders like $1, $2, $3
         placeholders = ', '.join([f'${i+1}' for i in range(len(values))])
         
@@ -118,18 +170,31 @@ class PostgresEngine(BaseEngine):
         Builds and executes an UPDATE statement.
         """
         table_name = model_instance.__tablename__
-        fields = model_instance._fields
+
         pk_field_name = 'id' # Assume 'id' for now
         pk_value = getattr(model_instance, pk_field_name)
 
         update_fields = []
         values = []
         i = 1
-        for name in fields.keys():
-            if name != pk_field_name:
-                update_fields.append(f'"{name}" = ${i}')
-                values.append(getattr(model_instance, name))
+        
+        # Combine all fields for updating
+        all_fields = {**model_instance._fields, **model_instance._foreign_keys}
+
+        for name, field in all_fields.items():
+            if not field.primary_key:
+                # Handle foreign keys by updating the `_id` column
+                if isinstance(field, ForeignKey):
+                    col_name = f"{name}_id"
+                    update_fields.append(f'"{col_name}" = ${i}')
+                    values.append(getattr(model_instance, col_name))
+                # Handle regular fields
+                else:
+                    col_name = name
+                    update_fields.append(f'"{col_name}" = ${i}')
+                    values.append(getattr(model_instance, col_name))
                 i += 1
+
         
         # Add the primary key value for the WHERE clause
         values.append(pk_value)

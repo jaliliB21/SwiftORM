@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod, ABCMeta
-from .fields import Field, TextField
+from .fields import Field, TextField, ForeignKey
 from . import exceptions
 
 
@@ -36,15 +36,18 @@ class ModelMetaclass(type):
 
         # Find all attributes that are instances of Field.
         fields = {}
+        foreign_keys = {} 
         for key, value in attrs.items():
-            if isinstance(value, Field):
+            if isinstance(value, ForeignKey):
+                foreign_keys[key] = value
+            elif isinstance(value, Field):
                 fields[key] = value
         
         setattr(new_class, '_fields', fields)
+        setattr(new_class, '_foreign_keys', foreign_keys) # <-- Store it on the class
         
-        # Remove the field definitions from the class attributes
-        # so they don't interfere with instance attributes.
-        for key in fields:
+        # We now need to remove both types of fields from the class attributes
+        for key in list(fields.keys()) + list(foreign_keys.keys()):
             delattr(new_class, key)
             
         return new_class
@@ -71,38 +74,76 @@ class Model(ABC, metaclass=CombinedMeta):
     def __init__(self, **kwargs):
         """
         Initializes a model instance.
-        - Sets all defined fields with their default value or None.
-        - Overwrites them with any values passed in kwargs.
+        It now expects foreign keys to be passed with an `_id` suffix.
         """
+        all_fields = {**self._fields, **self._foreign_keys}
+        
+        # First, initialize all fields with their default value
+        for name, field in all_fields.items():
+            if isinstance(field, ForeignKey):
+                setattr(self, f"{name}_id", field.default)
+            else:
+                setattr(self, name, field.default)
 
-        # Step 1: Initialize all fields from the class's `_fields` map.
-        for name, field in self._fields.items():
-            setattr(self, name, field.default)
-
-        # Step 2: Overwrite with any values the user provided.
+        # Then, overwrite with any values provided by the user
         for key, value in kwargs.items():
-            if key in self._fields:
-                setattr(self, key, value)
+            # Check for regular fields OR fk fields with _id suffix
+            if key in self._fields or (key.endswith('_id') and key[:-3] in self._foreign_keys):
+                 setattr(self, key, value)
+            # We don't check for the `author` object anymore, only `author_id`
+            elif key in self._foreign_keys:
+                 raise TypeError(f"'{key}' is a ForeignKey. To set it, pass '{key}_id' instead.")
             else:
                 raise AttributeError(f"'{type(self).__name__}' object has no attribute '{key}'")
 
     def __repr__(self):
-        # The __repr__ method remains the same.
-        attrs_str = ', '.join(f'{key}={getattr(self, key, None)}' for key in self._fields)
-        return f"<{type(self).__name__}: {attrs_str}>"
+        """
+        A more robust representation that correctly displays the primary key and all fields.
+        """
+        all_fields = {**self._fields, **self._foreign_keys}
+        attrs_list = []
+        
+        # Find and add the primary key first for clarity
+        pk_name = None
+        for name, field in self._fields.items():
+            if field.primary_key:
+                pk_name = name
+                attrs_list.append(f"{name}={getattr(self, name, None)}")
+                break
+
+        for key in sorted(all_fields.keys()):
+            if key == pk_name: continue # Skip if it's the PK, we already added it
+            
+            if isinstance(all_fields[key], ForeignKey):
+                attrs_list.append(f'{key}_id={getattr(self, f"{key}_id", None)}')
+            else:
+                attrs_list.append(f'{key}={getattr(self, key, None)}')
+        return f"<{type(self).__name__}: {', '.join(attrs_list)}>"
 
     def validate(self):
         """
-        Runs validation checks for all fields before saving.
+        Runs validation checks for all fields, including ForeignKeys.
         """
-        for name, field in self._fields.items():
-            value = getattr(self, name, None)
+        # We combine both dictionaries to check all fields.
+        all_fields = {**self._fields, **self._foreign_keys}
+
+        for name, field in all_fields.items():
+            
+            # For ForeignKeys, we check the `_id` attribute.
+            if isinstance(field, ForeignKey):
+                value = getattr(self, f"{name}_id", None)
+            else:
+                value = getattr(self, name, None)
+
+            # Now we run the checks.
             if field.required and value is None:
                 raise exceptions.ValidationError(f"Field '{name}' is required and cannot be null.")
             
-            # Then, if a value exists, run the field's own type-specific validation.
             if value is not None:
-                field.validate(value)
+                # We need to make sure we don't try to validate the related object itself,
+                # just the value being saved.
+                if not isinstance(field, ForeignKey):
+                     field.validate(value)
 
     async def save(self):
         """

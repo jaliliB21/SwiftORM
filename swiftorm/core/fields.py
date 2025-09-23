@@ -63,3 +63,20 @@ class BooleanField(Field):
         super().validate(value)
         if not isinstance(value, bool):
             raise exceptions.ValidationError(f"Value must be a boolean, but got {type(value).__name__}.")
+
+
+class ForeignKey(Field):
+    """
+    Represents a foreign key relationship to another model.
+    """
+    def __init__(self, to, on_delete="SET NULL", required=True, **kwargs):
+        """
+        Args:
+            to: The related model class (e.g., User).
+            on_delete: The SQL action to perform on deletion (e.g., "CASCADE", "SET NULL").
+        """
+        self.related_model = to
+        self.on_delete = on_delete
+        
+        # We pass the new default `required=True` to the parent class
+        super().__init__(required=required, **kwargs)
