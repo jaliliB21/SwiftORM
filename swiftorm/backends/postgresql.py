@@ -59,8 +59,9 @@ class PostgresEngine(BaseEngine):
                 column_type_str = 'INTEGER'
                 
                 related_table = field.related_model.__tablename__
-                # For simplicity, assume the related field is always 'id'
-                related_field = 'id'
+                
+                # Dynamic ID Field
+                related_field = field.related_model._get_pk_name()
                 
                 # Build the FOREIGN KEY constraint string
                 fk_constraint = (
@@ -129,34 +130,49 @@ class PostgresEngine(BaseEngine):
         
         columns = []
         values = []
-        
-        # Iterate over regular fields (excluding primary key)
-        for name, field in model_instance._fields.items():
-            if not field.primary_key:
+        all_fields = {**model_instance._fields, **model_instance._foreign_keys}
+
+        # Dynamically find the primary key name
+        pk_field_name = model_instance._get_pk_name()
+
+        # This new, smarter loop handles all cases correctly.
+        for name, field in all_fields.items():
+            value = None
+            col_name = name
+            
+            if isinstance(field, ForeignKey):
+                col_name = f"{name}_id"
+                value = getattr(model_instance, col_name, None)
+            else:
                 value = getattr(model_instance, name, None)
-                if value is not None:
-                    columns.append(f'"{name}"')
-                    values.append(value)
-        
-        # Iterate over foreign key fields
-        for name, field in model_instance._foreign_keys.items():
-            fk_id_name = f"{name}_id"
-            value = getattr(model_instance, fk_id_name, None)
-            if value is not None:
-                columns.append(f'"{fk_id_name}"')
-                values.append(value)
+            
+            # THE KEY LOGIC: We skip the primary key ONLY if it's an IntegerField
+            # (which we assume is SERIAL) AND its value is None.
+            # In all other cases (like a TextField PK), we include it.
+            if field.primary_key and isinstance(field, IntegerField) and value is None:
+                continue
+
+            columns.append(f'"{col_name}"')
+            values.append(value)
        
         # Build placeholders like $1, $2, $3
         placeholders = ', '.join([f'${i+1}' for i in range(len(values))])
-        
-        # Find the primary key field name
-        pk_field_name = 'id' # Assume 'id' for now for simplicity
-        
-        sql = f'INSERT INTO "{table_name}" ({", ".join(columns)}) VALUES ({placeholders}) RETURNING "{pk_field_name}";'
-        
+                
+        sql = f'INSERT INTO "{table_name}" ({", ".join(columns)}) VALUES ({placeholders})'
+
+        # Only use RETURNING if the PK is an auto-generating integer.
+        if pk_field_name and isinstance(model_instance._fields.get(pk_field_name), IntegerField):
+            sql += f' RETURNING "{pk_field_name}";'
+        else:
+            sql += ';'
+
         try:
             result = await self.driver.execute(sql, values)
-            setattr(model_instance, pk_field_name, result[0][pk_field_name])
+            
+            # Only try to set the PK if the database returned a result.
+            if pk_field_name and result and pk_field_name in result[0]:
+                setattr(model_instance, pk_field_name, result[0][pk_field_name])
+                
         except QueryError as e:
             # Check if the database error is about a unique constraint violation
             if 'unique constraint' in str(e).lower():
@@ -171,7 +187,7 @@ class PostgresEngine(BaseEngine):
         """
         table_name = model_instance.__tablename__
 
-        pk_field_name = 'id' # Assume 'id' for now
+        pk_field_name = model_instance._get_pk_name()
         pk_value = getattr(model_instance, pk_field_name)
 
         update_fields = []
@@ -195,7 +211,9 @@ class PostgresEngine(BaseEngine):
                     values.append(getattr(model_instance, col_name))
                 i += 1
 
-        
+        if not update_fields:
+            return
+
         # Add the primary key value for the WHERE clause
         values.append(pk_value)
         
@@ -216,7 +234,7 @@ class PostgresEngine(BaseEngine):
         Builds and executes a DELETE statement.
         """
         table_name = model_instance.__tablename__
-        pk_field_name = 'id' # Assume 'id' for now
+        pk_field_name = model_instance._get_pk_name()
         pk_value = getattr(model_instance, pk_field_name)
         
         sql = f'DELETE FROM "{table_name}" WHERE "{pk_field_name}" = $1;'

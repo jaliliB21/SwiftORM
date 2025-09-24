@@ -48,7 +48,12 @@ class QuerySet:
         )
         
         # Convert raw data rows into model instances
-        return [self.model_class(**row) for row in rows]
+        results = []
+        for row in rows:
+            instance = self.model_class(**row)
+            instance._is_new = False # <-- THE FIX
+            results.append(instance)
+        return results
 
     async def first(self):
         """
@@ -57,6 +62,7 @@ class QuerySet:
         engine = self.model_class._engine
         if not engine:
             raise exceptions.ORMError("Engine is not configured.")
+
 
         # Limit the query to 1 result for efficiency
         rows = await engine.select(
@@ -71,7 +77,8 @@ class QuerySet:
         
         # We need to correctly initialize the instance from the row data
         instance = self.model_class(**rows[0])
-        instance.id = rows[0].get('id') # Ensure PK is set
+        instance._is_new = False
+
         return instance
 
     async def get(self, **kwargs):
@@ -93,7 +100,7 @@ class QuerySet:
             raise exceptions.MultipleObjectsReturned(f"Query returned {len(rows)} objects, but expected 1.")
         
         instance = self.model_class(**rows[0])
-        instance.id = rows[0].get('id') # Ensure PK is set
+        instance._is_new = False
         return instance
 
     async def create(self, **kwargs):

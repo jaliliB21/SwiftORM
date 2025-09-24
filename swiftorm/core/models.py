@@ -46,6 +46,17 @@ class ModelMetaclass(type):
         setattr(new_class, '_fields', fields)
         setattr(new_class, '_foreign_keys', foreign_keys) # <-- Store it on the class
         
+        # --- THIS IS THE NEW VALIDATION LOGIC ---
+        # After gathering fields, we validate the primary key constraint.
+        pk_count = sum(1 for f in fields.values() if f.primary_key)
+
+        if pk_count == 0:
+            raise TypeError(f"Model '{name}' must have one primary key field (primary_key=True).")
+        if pk_count > 1:
+            raise TypeError(f"Model '{name}' cannot have more than one primary key field.")
+        # --- END OF NEW LOGIC ---
+        
+
         # We now need to remove both types of fields from the class attributes
         for key in list(fields.keys()) + list(foreign_keys.keys()):
             delattr(new_class, key)
@@ -77,6 +88,8 @@ class Model(ABC, metaclass=CombinedMeta):
         It now expects foreign keys to be passed with an `_id` suffix.
         """
         all_fields = {**self._fields, **self._foreign_keys}
+
+        self._is_new = True 
         
         # First, initialize all fields with their default value
         for name, field in all_fields.items():
@@ -104,12 +117,10 @@ class Model(ABC, metaclass=CombinedMeta):
         attrs_list = []
         
         # Find and add the primary key first for clarity
-        pk_name = None
-        for name, field in self._fields.items():
-            if field.primary_key:
-                pk_name = name
-                attrs_list.append(f"{name}={getattr(self, name, None)}")
-                break
+        pk_name = self._get_pk_name()
+
+        if pk_name:
+             attrs_list.append(f"{pk_name}={getattr(self, pk_name, None)}")
 
         for key in sorted(all_fields.keys()):
             if key == pk_name: continue # Skip if it's the PK, we already added it
@@ -119,6 +130,15 @@ class Model(ABC, metaclass=CombinedMeta):
             else:
                 attrs_list.append(f'{key}={getattr(self, key, None)}')
         return f"<{type(self).__name__}: {', '.join(attrs_list)}>"
+
+    @classmethod
+    def _get_pk_name(cls):
+        """Finds the name of the primary key field for this model."""
+        # Note: we use cls._fields instead of self._fields
+        for name, field in cls._fields.items():
+            if field.primary_key:
+                return name
+        return None
 
     def validate(self):
         """
@@ -148,19 +168,26 @@ class Model(ABC, metaclass=CombinedMeta):
     async def save(self):
         """
         Saves the current instance to the database.
-        Delegates to the engine's insert or update method.
         """
-        self.validate() # <-- Run validation before saving
-        if self.id is None:
-            # This is a new record, so insert it.
+        
+        self.validate()
+
+        # We now use the `_is_new` flag to decide between INSERT and UPDATE
+        if self._is_new:
             await self._engine.insert(self)
+            # After the first insert, it's not new anymore
+            self._is_new = False
         else:
-            # This is an existing record, so update it.
             await self._engine.update(self)
 
     async def delete(self):
         """
         Deletes the current instance from the database.
-        Delegates to the engine's delete method.
         """
+        pk_name = self._get_pk_name()
+        pk_val = getattr(self, pk_name, None)
+        
+        if pk_val is None:
+            raise exceptions.ORMError("Cannot delete an unsaved instance.")
+        
         await self._engine.delete(self)

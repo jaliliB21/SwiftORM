@@ -1,7 +1,7 @@
 import asyncio
 import swiftorm
 # We import the models from our example app
-from .blog.models import Author, Post
+from .blog.models import Author, Post, Product
 
 
 async def main():
@@ -15,6 +15,7 @@ async def main():
     print("\n--- Dropping old tables (if they exist) ---")
     await swiftorm._engine.driver.execute("DROP TABLE IF EXISTS posts;", [])
     await swiftorm._engine.driver.execute("DROP TABLE IF EXISTS authors;", [])
+    await swiftorm._engine.driver.execute("DROP TABLE IF EXISTS products;", [])
     
     # Create tables based on discovered models
     print("\n--- Creating new tables ---")
@@ -35,8 +36,21 @@ async def main():
         print(f"Fetched post has author_id: {fetched_post.author_id}")
         assert fetched_post.author_id == author.id
 
+        # 4. Fetch all post and filter with author id
         fetched_author_post = await Post.objects.filter(author_id=author.id).all()
         print(fetched_author_post)
+
+        # 5. 
+        product = await Product.objects.create(sku='LAP-MAC-M3-16GB', name="Laptop Pro", price="500.00$")
+        print(product)
+
+        product.price = "490.00$"
+        await product.save()
+        
+        products = await Product.objects.all()
+        print(products)
+
+        await product.delete()
 
     except Exception as e:
         print(f"An error occurred: {e}")
