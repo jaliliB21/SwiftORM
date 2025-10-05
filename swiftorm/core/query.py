@@ -1,4 +1,5 @@
 from . import exceptions
+from .. import db
 import copy
 
 
@@ -36,7 +37,7 @@ class QuerySet:
         """
         Executes the query and returns all matching records as a list.
         """
-        engine = self.model_class._engine
+        engine = db.engine
         if not engine:
             raise exceptions.ORMError("Engine is not configured.")
         
@@ -59,7 +60,7 @@ class QuerySet:
         """
         Executes the query and returns the first matching record, or None.
         """
-        engine = self.model_class._engine
+        engine = db.engine
         if not engine:
             raise exceptions.ORMError("Engine is not configured.")
 
@@ -87,7 +88,7 @@ class QuerySet:
         """
         # We fetch the engine from the model class dynamically,
         # ensuring we get the configured engine after setup() has run.
-        engine = self.model_class._engine
+        engine = db.engine
         if not engine:
             raise exceptions.ORMError("Engine is not configured.")
 

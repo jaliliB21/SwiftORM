@@ -1,9 +1,10 @@
 from abc import ABC, abstractmethod, ABCMeta
 from .fields import Field, TextField, ForeignKey
 from . import exceptions
+from .. import db 
 
 
-from .query import QuerySet # <-- Import QuerySet
+from .query import QuerySet
 
 # A central registry to store all defined model classes.
 _model_registry = []
@@ -174,11 +175,11 @@ class Model(ABC, metaclass=CombinedMeta):
 
         # We now use the `_is_new` flag to decide between INSERT and UPDATE
         if self._is_new:
-            await self._engine.insert(self)
+            await db.engine.insert(self)
             # After the first insert, it's not new anymore
             self._is_new = False
         else:
-            await self._engine.update(self)
+            await db.engine.update(self)
 
     async def delete(self):
         """
@@ -190,4 +191,4 @@ class Model(ABC, metaclass=CombinedMeta):
         if pk_val is None:
             raise exceptions.ORMError("Cannot delete an unsaved instance.")
         
-        await self._engine.delete(self)
+        await db.engine.delete(self)
