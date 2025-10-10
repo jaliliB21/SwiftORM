@@ -3,8 +3,9 @@ from examples.blog.models import Author
 from swiftorm.core import exceptions
 
 
+@pytest.mark.parametrize("field", ["name"])
 @pytest.mark.asyncio
-async def test_full_crud_cycle(db_session):
+async def test_full_crud_cycle(field, db_session):
     """
     Tests a full Create, Read, Update, and Delete cycle on a simple model.
     This is an integration test that requires a live database.
