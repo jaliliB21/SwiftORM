@@ -102,6 +102,7 @@ class QuerySet:
         
         instance = self.model_class(**rows[0])
         instance._is_new = False
+        instance._set_original_pk()  # Set original PK after load
         return instance
 
     async def create(self, **kwargs):
@@ -113,4 +114,5 @@ class QuerySet:
         instance = self.model_class(**kwargs)
         # Use the instance's own save method to persist it
         await instance.save()
+        instance._set_original_pk()  # Set original PK after load
         return instance

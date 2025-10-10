@@ -81,8 +81,6 @@ class Model(ABC, metaclass=CombinedMeta):
     # in the `_model_registry`.
     __abstract__ = True
 
-    _engine = None
-
     def __init__(self, **kwargs):
         """
         Initializes a model instance.
@@ -91,7 +89,7 @@ class Model(ABC, metaclass=CombinedMeta):
         all_fields = {**self._fields, **self._foreign_keys}
 
         self._is_new = True 
-        
+
         # First, initialize all fields with their default value
         for name, field in all_fields.items():
             if isinstance(field, ForeignKey):
@@ -141,6 +139,15 @@ class Model(ABC, metaclass=CombinedMeta):
                 return name
         return None
 
+    def _set_original_pk(self):
+        """
+        Private method to set original PK after load/create.
+        """
+        pk_name = self._get_pk_name()
+        if pk_name:
+            self._original_pk_name = pk_name
+            self._original_pk_value = getattr(self, pk_name)
+
     def validate(self):
         """
         Runs validation checks for all fields, including ForeignKeys.
@@ -179,6 +186,9 @@ class Model(ABC, metaclass=CombinedMeta):
             # After the first insert, it's not new anymore
             self._is_new = False
         else:
+            pk_name = self._get_pk_name()
+            if pk_name and self._original_pk_name and getattr(self, pk_name) != self._original_pk_value:
+                raise exceptions.ValidationError(f"Primary key '{pk_name}' cannot be changed.")
             await db.engine.update(self)
 
     async def delete(self):
