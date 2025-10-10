@@ -3,6 +3,9 @@ from .. import db
 import copy
 
 
+from async_driver.exceptions import QueryError
+
+
 class QuerySet:
     """
     Manages and executes database queries for a model.
@@ -13,6 +16,16 @@ class QuerySet:
         self._filters = {}
         # This new list will store our ORDER BY conditions
         self._ordering = []
+
+    def validate_filters(self):
+        """
+        Validates all filters in self._filters using the model's field validators.
+        Raises ValidationError if any value is invalid for its field type.
+        """
+        for key, value in self._filters.items():
+            field = self.model_class._fields.get(key)
+            if field:
+                field.validate(value)  # Raise ValidationError if invalid (e.g., string for int)
 
     def filter(self, **kwargs):
         """
@@ -40,13 +53,20 @@ class QuerySet:
         engine = db.engine
         if not engine:
             raise exceptions.ORMError("Engine is not configured.")
-        
-        # Pass the stored filters to the engine's select method
-        rows = await engine.select(
-            self.model_class,
-            filters=self._filters,
-            ordering=self._ordering  # <-- Pass ordering to the engine
-        )
+
+        self.validate_filters() # Validate self._filters
+        try:
+            # Pass the stored filters to the engine's select method
+            rows = await engine.select(
+                self.model_class,
+                filters=self._filters,
+                ordering=self._ordering  # <-- Pass ordering to the engine
+            )
+        except QueryError as e:
+            error_msg = str(e).lower()
+            if "invalid input syntax" in error_msg:
+                raise exceptions.ValidationError(f"Invalid input for query: {str(e)}")
+            raise  # Re-raise other QueryErrors
         
         # Convert raw data rows into model instances
         results = []
@@ -64,15 +84,22 @@ class QuerySet:
         if not engine:
             raise exceptions.ORMError("Engine is not configured.")
 
-
-        # Limit the query to 1 result for efficiency
-        rows = await engine.select(
-            self.model_class,
-            filters=self._filters,
-            ordering=self._ordering,
-            limit=1
-        )
         
+        self.validate_filters() # Validate self._filters
+        try:
+            # Limit the query to 1 result for efficiency
+            rows = await engine.select(
+                self.model_class,
+                filters=self._filters,
+                ordering=self._ordering,
+                limit=1
+            )
+        except QueryError as e:
+            error_msg = str(e).lower()
+            if "invalid input syntax" in error_msg:
+                raise exceptions.ValidationError(f"Invalid input for query: {str(e)}")
+            raise  # Re-raise other QueryErrors
+
         if not rows:
             return None
         
@@ -92,7 +119,15 @@ class QuerySet:
         if not engine:
             raise exceptions.ORMError("Engine is not configured.")
 
-        rows = await engine.select(self.model_class, filters=kwargs)
+
+        self.validate_filters() # Validate kwargs (set self._filters if needed)
+        try:
+            rows = await engine.select(self.model_class, filters=kwargs)
+        except QueryError as e:
+            error_msg = str(e).lower()
+            if "invalid input syntax" in error_msg:
+                raise exceptions.ValidationError(f"Invalid input for query: {str(e)}")
+            raise  # Re-raise other QueryErrors
 
         if len(rows) == 0:
             raise exceptions.ObjectNotFound(f"{self.model_class.__name__} matching query does not exist.")
